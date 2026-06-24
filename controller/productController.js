@@ -1,6 +1,9 @@
 const Product = require("../models/product");
 const cloudinary = require("../config/cloudinaryConfig");
 
+const User = require("../models/user");
+const sendEmail = require("../middleware/emailSender");
+
 // Helper to extract Cloudinary public ID from an image URL
 const extractPublicId = (url) => {
     try {
@@ -77,7 +80,39 @@ exports.createProduct = async (req, res) => {
             req.body.imageUrl = req.file.path;
         }
         const product = await Product.create(req.body);
-        res.status(201).json(product);
+
+        const admins = await User.find({role: "admin"});
+        const adminEmails = admins.map(a => a.email);
+
+        const subject = "New Product Created";
+        const message = `
+        <h3>New Product Alert </h3>
+        <p>A new product has been created: </p>
+        <ul>
+            <li><strong>Name:</strong> ${product.name}</li>
+            <li><strong>Price:</strong> ${product.price}</li>
+        </ul>
+        `;
+
+        let emailSent = false;
+        let emailError = null;
+
+        if (adminEmails.length > 0) {
+            try {
+                await sendEmail(adminEmails.join(", "), subject, message);
+                emailSent = true;
+            } catch (emailErr) {
+                console.error("Failed to send email notification to admins:", emailErr);
+                emailError = emailErr.message;
+            }
+        }
+
+        return res.status(201).json({
+            message: emailSent 
+                ? "Product created and admins notified" 
+                : `Product created successfully ${emailError ? `(but failed to send email: ${emailError})` : "(no admins to notify)"}`,
+            product,
+        });
     }
     catch (err) {
         if (req.file && req.file.filename) {
@@ -149,6 +184,46 @@ exports.deleteProduct = async (req, res) => {
         }
 
         res.json(product);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// sell product
+exports.sellProduct = async (req, res) => {
+    try {
+        const productId = req.params.id;
+        const quantitySold = Number(req.body.quantitySold) || 1;
+
+        if (quantitySold <= 0) {
+            return res.status(400).json({ message: "Quantity sold must be greater than 0" });
+        }
+
+        const product = await Product.findById(productId);
+
+        if (!product) {
+            return res.status(400).json({ message: "Product not found" });
+        }
+
+        if (product.quantity === 0) {
+            return res.status(400).json({ message: "Product is sold out" });
+        }
+
+        if (product.quantity < quantitySold) {
+            return res.status(400).json({
+                message: `Insufficient stock. Only ${product.quantity} items remaining.`
+            });
+        }
+
+        product.quantity -= quantitySold;
+        await product.save();
+
+        res.status(200).json({
+            message: product.quantity === 0 
+                ? "Sale successful. The product is now sold out!" 
+                : `Sale successful. ${product.quantity} items remaining.`,
+            product
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

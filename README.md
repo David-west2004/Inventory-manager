@@ -1,103 +1,178 @@
-# Inventory Manager - Image Upload Fixes & Documentation
+# Inventory Manager
 
-This document describes the fixes applied to resolve the image upload issues in the **Inventory Manager** application.
-
----
-
-## 🔍 The Problems Identified
-
-We identified several critical bugs in the image upload workflow:
-
-1. **Incorrect Storage Constructor (Crash)**
-   - *File*: `middleware/imageUpload.js`
-   - *Issue*: `multer-storage-cloudinary` version `4.x.x` exports `CloudinaryStorage` (capital **C**), but the code imported it as `cloudinaryStorage` (lowercase **c**). This caused a crash when attempting to instantiate the storage object: `TypeError: cloudinaryStorage is not a constructor`.
-
-2. **Incorrect Multer Parameter Casing (No Storage Assigned)**
-   - *File*: `middleware/imageUpload.js`
-   - *Issue*: Multer expects the storage object under the lowercase configuration key `storage`. The code passed `{ Storage }` (which evaluates to `{ Storage: Storage }`), meaning multer ignored it and fell back to default local storage behavior instead of Cloudinary storage.
-
-3. **Missing Route Middleware (Upload Ignored)**
-   - *File*: `route/productRoute.js`
-   - *Issue*: The image upload middleware `upload.single("image")` was never imported or applied to either the product creation (`POST /api/product/products`) or product image update (`PUT /api/product/upload/:id`) routes. As a result, `req.file` was always undefined.
-
-4. **Schema Field Mismatch & Application Crashes**
-   - *File*: `controller/productController.js`
-   - *Issue*: The Mongoose Product schema defines `imageUrl`, but the controller code attempted to read `product.image.split(" ")[0]` to extract a public ID. Since `product.image` does not exist, this threw `TypeError: Cannot read properties of undefined (reading 'split')`.
-
-5. **Cloudinary Asset Leaks (Orphaned Files)**
-   - *File*: `controller/productController.js`
-   - *Issue*: Old files were never deleted from Cloudinary upon image updates or product deletions. Additionally, if MongoDB validation failed after uploading a file during product creation, the uploaded image remained orphaned in Cloudinary.
+A Node.js & Express RESTful API for inventory management with Role-Based Access Control (RBAC), image upload integration to Cloudinary, and admin email alerts on product creation.
 
 ---
 
-## 🛠️ The Solutions Applied
+## 📋 Summary of the Project
 
-### 1. Fixed Multer & Cloudinary Storage Config
-Updated `middleware/imageUpload.js` to correctly import and configure the Cloudinary storage backend:
-- Imported `CloudinaryStorage` (Capital **C**).
-- Used the correct, lowercase `storage` configuration key when instantiating `multer`.
-- Used `"inventory-manager"` as the Cloudinary folder name (no spaces) to keep URL structures clean.
+The **Inventory Manager** is a Node.js & Express RESTful API designed for comprehensive inventory management. It features Role-Based Access Control (RBAC), image upload integration to Cloudinary, and automated admin email alerts.
 
-### 2. Enabled Upload Middleware on Routes
-Updated `route/productRoute.js` to apply `upload.single("image")` to two routes:
-- **`POST /api/product/products`**: For uploading the product image on initial creation.
-- **`PUT /api/product/upload/:id`**: For uploading/replacing the image of an existing product.
-
-### 3. Rewrote Controller & Added Image Deletion Utilities
-Updated `controller/productController.js` with robust file lifecycle management:
-- **Added `extractPublicId(url)`**: A helper function that decodes Cloudinary image URLs and extracts the exact `publicId` (e.g., `inventory-manager/filename`). It safely strips out version paths (like `v12345678/`) and the file extension.
-- **Improved `createProduct`**:
-  - Assigns `req.file.path` to `req.body.imageUrl`.
-  - In case of a database creation failure, it automatically deletes the newly uploaded image from Cloudinary inside the `catch` block to prevent orphaned assets.
-- **Improved `updateProductImage`**:
-  - Checks if a file was uploaded. If not, returns a validation error.
-  - If a file is uploaded, it deletes the old product image from Cloudinary first.
-  - Safely deletes the new image from Cloudinary if the product is not found or if the database save fails.
-- **Improved `deleteProduct`**:
-  - When a product is deleted from the database, its associated image in Cloudinary is automatically destroyed.
+### Key Capabilities:
+- **Role-Based Access Control (RBAC)**: Supports roles (`admin`, `salesperson`, `storekeeper`) to secure and restrict product and user management operations.
+- **Product & Stock Management**: Complete product CRUD actions along with sales processing (`POST /products/:id/sell`) that handles real-time stock deductions and dynamic status calculation (`In Stock` / `Sold Out`).
+- **Cloud-Integrated Media**: Seamless product image uploads and updates using Multer and Cloudinary storage with automatic asset deletion when products are updated or removed.
+- **Resilient Notification System**: Alerts administrator emails upon product creation, designed with error isolation so that SMTP delivery failures do not block product registration or delete uploaded media assets.
 
 ---
 
 ## ⚙️ Environment Configuration
 
-Ensure that your `.env` file contains the correct Cloudinary credentials:
+Create a `.env` file in the root directory:
 
 ```env
-PORT=5000
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
-JWT_SECRET=your_jwt_secret
-MONGO_URI=your_mongodb_connection_uri
+PORT=your_port
+MONGO_URI=your_mongo_db_uri
+JWT_SECRET=your_secret_key
+CLOUDINARY_CLOUD_NAME=your_cloudinary_name
+CLOUDINARY_API_KEY=your_cloudinary_api_key
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret
+EMAIL_USER=your_email@gmail.com
+EMAIL_PASSWORD=your_gmail_app_password
 ```
+
+> [!IMPORTANT]
+> If you are using Gmail for email notifications, you **must use a Gmail App Password** (16 characters) instead of your regular password. Remove the spaces when inserting it into `.env` (e.g. `EMAIL_PASSWORD=xxxxxxxxxxxxxxxx`).
 
 ---
 
-## 🚀 API Endpoints & Testing
+## 🚀 API Endpoint Testing Guide & Parameter Reference
 
-### 1. Create Product (with Image Upload)
+### 1. User Management & Auth (`/api/user`)
+
+#### A. Create User (Register)
+- **Method**: `POST`
+- **Route**: `/api/user/user`
+- **Content-Type**: `application/json`
+- **Body (JSON Parameters)**:
+  | Parameter | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `name` | String | Yes | Name of the user. |
+  | `phone` | String | Yes | Unique phone number. |
+  | `email` | String | Yes | Unique email address (valid email format). |
+  | `password` | String | Yes | Plaintext password (will be hashed). |
+  | `role` | String | No | Enum: `admin`, `salesperson`, `storekeeper`. Default: `salesperson`. |
+
+#### B. Login User
+- **Method**: `POST`
+- **Route**: `/api/user/user/login`
+- **Content-Type**: `application/json`
+- **Body (JSON Parameters)**:
+  | Parameter | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `email` | String | Yes | Email address of the user. |
+  | `password` | String | Yes | Password of the user. |
+- **Response**:
+  ```json
+  {
+    "message": "Login successful",
+    "token": "eyJhbGciOi...",
+    "user": { "id": "...", "name": "...", "role": "..." }
+  }
+  ```
+
+#### C. Get All Users
+- **Method**: `GET`
+- **Route**: `/api/user/user`
+
+#### D. Get Single User
+- **Method**: `GET`
+- **Route**: `/api/user/user/:id`
+- **Path Parameters**:
+  - `id`: MongoDB ObjectId of the user.
+
+#### E. Update User
+- **Method**: `PUT`
+- **Route**: `/api/user/user/:id`
+- **Path Parameters**:
+  - `id`: MongoDB ObjectId of the user.
+- **Body (JSON Parameters)**:
+  - Any user fields to update (`name`, `phone`, `email`, `password`, `role`).
+
+#### F. Delete User
+- **Method**: `DELETE`
+- **Route**: `/api/user/user/:id`
+- **Path Parameters**:
+  - `id`: MongoDB ObjectId of the user.
+
+---
+
+### 2. Product Management (`/api/product`)
+*All endpoints below require a JWT token passed in the header: `Authorization: Bearer <your_jwt_token>`.*
+
+#### A. Create Product (Admin Only)
 - **Method**: `POST`
 - **Route**: `/api/product/products`
-- **Headers**: 
-  - `Authorization: Bearer <your_jwt_token>`
-  - `Content-Type: multipart/form-data`
-- **Body (Form-data)**:
-  - `name`: `Awesome Widget`
-  - `quantity`: `50`
-  - `price`: `19.99`
-  - `image`: `[File]` (The image file payload)
+- **Content-Type**: `multipart/form-data`
+- **Body (Form-data Parameters)**:
+  | Parameter | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `name` | String | Yes | Product name. |
+  | `quantity` | Number | Yes | Stock quantity. |
+  | `price` | Number | Yes | Unit price. |
+  | `image` | File | Yes | Image file (jpg, jpeg, png format). Uploaded to Cloudinary. |
 
-### 2. Update Product Image (Direct Update)
+#### B. Get All Products (Admin, Salesperson, Storekeeper)
+- **Method**: `GET`
+- **Route**: `/api/product/products`
+
+#### C. Get Single Product (Admin, Salesperson, Storekeeper)
+- **Method**: `GET`
+- **Route**: `/api/product/products/:id`
+- **Path Parameters**:
+  - `id`: MongoDB ObjectId of the product.
+
+#### D. Update Product Metadata (Admin, Storekeeper)
+- **Method**: `PUT`
+- **Route**: `/api/product/products/:id`
+- **Content-Type**: `application/json`
+- **Path Parameters**:
+  - `id`: MongoDB ObjectId of the product.
+- **Body (JSON Parameters)**:
+  - Any product fields to update (`name`, `quantity`, `price`). *(Note: Cannot update the image via this endpoint)*.
+
+#### E. Update Product Image (Admin, Storekeeper)
 - **Method**: `PUT`
 - **Route**: `/api/product/upload/:id`
-- **Headers**:
-  - `Authorization: Bearer <your_jwt_token>`
-  - `Content-Type: multipart/form-data`
-- **Body (Form-data)**:
-  - `image`: `[File]` (The new image file payload)
+- **Content-Type**: `multipart/form-data`
+- **Path Parameters**:
+  - `id`: MongoDB ObjectId of the product.
+- **Body (Form-data Parameters)**:
+  | Parameter | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `image` | File | Yes | New image file (jpg, jpeg, png format). Replaces old Cloudinary asset. |
 
-### 3. Delete Product (Automatic Cloudinary Cleanup)
+#### F. Delete Product (Admin Only)
 - **Method**: `DELETE`
 - **Route**: `/api/product/products/:id`
-- **Headers**:
-  - `Authorization: Bearer <your_jwt_token>`
+- **Path Parameters**:
+  - `id`: MongoDB ObjectId of the product. *(This automatically destroys the linked image asset in Cloudinary)*.
+
+#### G. Sell Product (Admin, Salesperson)
+- **Method**: `POST`
+- **Route**: `/api/product/products/:id/sell`
+- **Content-Type**: `application/json`
+- **Path Parameters**:
+  - `id`: MongoDB ObjectId of the product to sell.
+- **Body (JSON Parameters)**:
+  | Parameter | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `quantitySold` | Number | No | The number of items sold. Defaults to `1`. Must be greater than 0 and less than or equal to the available stock. |
+- **Example Response (200 OK)**:
+  ```json
+  {
+    "message": "Sale successful. 4 items remaining.",
+    "product": {
+      "_id": "6a3c220cd6f309a401c5f4b7",
+      "name": "excavator",
+      "quantity": 4,
+      "price": 40000000,
+      "imageUrl": "https://...",
+      "status": "In Stock",
+      "createdAt": "2026-06-24T18:31:40.910Z",
+      "updatedAt": "2026-06-24T18:35:10.120Z",
+      "__v": 0
+    }
+  }
+  ```
+
