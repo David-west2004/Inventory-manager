@@ -5,6 +5,7 @@ const connectDB = require("./config/database");
 
 const productRoute = require("./route/productRoute");
 const userRoute = require("./route/userRoute")
+const fakestoreroute = require("./route/fakestoreroute")
 
 // express app
 const app = express();
@@ -18,6 +19,7 @@ app.use(express.json());
 
 app.use("/api/product", productRoute);
 app.use("/api/user", userRoute);
+app.use("/api/fakestore", fakestoreroute);
 
 app.listen(process.env.PORT, () => {
     console.log(`Server is running on port http://localhost:${process.env.PORT}`);
