@@ -21,6 +21,11 @@ app.use("/api/product", productRoute);
 app.use("/api/user", userRoute);
 app.use("/api/fakestore", fakestoreroute);
 
+
+app.get('/', (req, res) => {
+    res.send('Inventory Manager API is running...');
+});
+
 app.listen(process.env.PORT, () => {
     console.log(`Server is running on port http://localhost:${process.env.PORT}`);
 });

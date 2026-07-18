@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const baseURL = 'https://fakestoreapi.com';
+const baseURL = 'http://fakestoreapi.com';
 
 const apiClient = axios.create({
     baseURL: baseURL,
