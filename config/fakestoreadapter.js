@@ -1,4 +1,8 @@
 const axios = require('axios');
+// Make sure your Mongoose models are imported correctly at the top
+// const Product = require('../models/Product');
+// const Cart = require('../models/Cart');
+// const User = require('../models/User');
 
 const baseURL = 'https://fakestoreapi.com';
 
@@ -13,22 +17,31 @@ const apiClient = axios.create({
     }
 });
 
-
-
-
+// ==========================================
 // PRODUCTS
+// ==========================================
 
 // GET ALL PRODUCTS
 exports.getAllProducts = async (req, res) => {
     try {
+        // 1. Check if products already exist in the database
+        const localProducts = await Product.find({});
+        
+        if (localProducts.length > 0) {
+            console.log('Fetching products from local Database...');
+            return res.send(localProducts);
+        }
+
+        // 2. If database is empty, fetch from external API
+        console.log('Database empty. Fetching products from External API...');
         const response = await apiClient.get('/products');
-
-        // save to database
         const products = response.data;
-        const savedProducts = await Product.insertMany(products);
 
+        // 3. Save to database for future requests
+        await Product.insertMany(products);
+        console.log('Products successfully cached to database.');
 
-        res.send(response.data);
+        res.send(products);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
@@ -38,64 +51,72 @@ exports.getAllProducts = async (req, res) => {
 // GET PRODUCT BY ID
 exports.getProductById = async (req, res) => {
     try {
-        const response = await apiClient.get(`/products/${req.params.id}`);
+        // 1. Check if this specific product is in the database (matching fake store's ID)
+        const localProduct = await Product.findOne({ id: req.params.id });
 
-        // save to database
+        if (localProduct) {
+            console.log(`Fetching product ${req.params.id} from local Database...`);
+            return res.send(localProduct);
+        }
+
+        // 2. If not found locally, fetch from external API
+        console.log(`Product ${req.params.id} not found locally. Fetching from External API...`);
+        const response = await apiClient.get(`/products/${req.params.id}`);
         const product = response.data;
+
+        // 3. Save to database
         const savedProduct = await Product.create(product);
         console.log('Product saved to database:', savedProduct);
 
-        res.send(response.data);
+        res.send(product);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-
-// create a new product 
+// CREATE A NEW PRODUCT
 exports.createProduct = async (req, res) => {
     try {
         const response = await apiClient.post('/products', req.body);
-
-        // save to database
         const product = response.data;
-        const savedProduct = await Product.create(product);
-        console.log('Product saved to database:', savedProduct);
 
-        res.send(response.data);
+        // Save directly to local database so it is available locally next time
+        const savedProduct = await Product.create(product);
+        console.log('New product created and saved to database:', savedProduct);
+
+        res.send(product);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-// update an existing product
+// UPDATE AN EXISTING PRODUCT
 exports.updateProduct = async (req, res) => {
     try {
         const response = await apiClient.put(`/products/${req.params.id}`, req.body);
-
-        // save to database
         const product = response.data;
-        const updatedProduct = await Product.findByIdAndUpdate(req.params.id, product, { new: true });
+
+        // Sync change into your local database copy
+        // Note: Assumes your schema matches by 'id' field from the external API
+        const updatedProduct = await Product.findOneAndUpdate({ id: req.params.id }, product, { new: true });
         console.log('Product updated in database:', updatedProduct);
 
-        res.send(response.data);
+        res.send(product);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-
-// delete a product
+// DELETE A PRODUCT
 exports.deleteProduct = async (req, res) => {
     try {
         const response = await apiClient.delete(`/products/${req.params.id}`);
-
-        // save to database
-        const product = response.data;
-        const deletedProduct = await Product.findByIdAndDelete(req.params.id);
+        
+        // Remove from local database to keep them synced
+        const deletedProduct = await Product.findOneAndDelete({ id: req.params.id });
         console.log('Product deleted from database:', deletedProduct);
 
         res.send(response.data);
@@ -105,21 +126,27 @@ exports.deleteProduct = async (req, res) => {
     }
 }
 
-
-
+// ==========================================
 // CART
+// ==========================================
 
-// GET ALL CART 
+// GET ALL CARTS
 exports.getAllCarts = async (req, res) => {
     try {
+        const localCarts = await Cart.find({});
+        if (localCarts.length > 0) {
+            console.log('Fetching carts from local Database...');
+            return res.send(localCarts);
+        }
+
+        console.log('Database empty. Fetching carts from External API...');
         const response = await apiClient.get('/carts');
-
-        // save to database
         const carts = response.data;
-        const savedCarts = await Cart.insertMany(carts);
-        console.log('Carts saved to database:', savedCarts);
 
-        res.send(response.data);
+        await Cart.insertMany(carts);
+        console.log('Carts successfully cached to database.');
+
+        res.send(carts);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
@@ -129,63 +156,62 @@ exports.getAllCarts = async (req, res) => {
 // GET CART BY ID
 exports.getCartById = async (req, res) => {
     try {
+        const localCart = await Cart.findOne({ id: req.params.id });
+        if (localCart) {
+            console.log(`Fetching cart ${req.params.id} from local Database...`);
+            return res.send(localCart);
+        }
+
+        console.log(`Cart ${req.params.id} not found locally. Fetching from External API...`);
         const response = await apiClient.get(`/carts/${req.params.id}`);
-
-        // save to database
         const cart = response.data;
-        const savedCart = await Cart.findByIdAndUpdate(req.params.id, cart, { new: true });
-        console.log('Cart updated in database:', savedCart);
 
-        res.send(response.data);
+        await Cart.create(cart);
+        res.send(cart);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-
-// create a new cart 
+// CREATE A NEW CART
 exports.createCart = async (req, res) => {
     try {
         const response = await apiClient.post('/carts', req.body);
-
-        // save to database
         const cart = response.data;
+
         const savedCart = await Cart.create(cart);
         console.log('Cart created in database:', savedCart);
 
-        res.send(response.data);
+        res.send(cart);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-// update an existing cart
+// UPDATE AN EXISTING CART
 exports.updateCart = async (req, res) => {
     try {
         const response = await apiClient.put(`/carts/${req.params.id}`, req.body);
-
-        // save to database
         const cart = response.data;
-        const updatedCart = await Cart.findByIdAndUpdate(req.params.id, cart, { new: true });
+
+        const updatedCart = await Cart.findOneAndUpdate({ id: req.params.id }, cart, { new: true });
         console.log('Cart updated in database:', updatedCart);
 
-        res.send(response.data);
+        res.send(cart);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-// delete a cart
+// DELETE A CART
 exports.deleteCart = async (req, res) => {
     try {
         const response = await apiClient.delete(`/carts/${req.params.id}`);
-
-        // save to database
-        const cart = response.data;
-        const deletedCart = await Cart.findByIdAndDelete(req.params.id);
+        
+        const deletedCart = await Cart.findOneAndDelete({ id: req.params.id });
         console.log('Cart deleted from database:', deletedCart);
 
         res.send(response.data);
@@ -195,19 +221,27 @@ exports.deleteCart = async (req, res) => {
     }
 }
 
+// ==========================================
 // USER
+// ==========================================
 
-// GET ALL USER
+// GET ALL USERS
 exports.getAllUsers = async (req, res) => {
     try {
+        const localUsers = await User.find({});
+        if (localUsers.length > 0) {
+            console.log('Fetching users from local Database...');
+            return res.send(localUsers);
+        }
+
+        console.log('Database empty. Fetching users from External API...');
         const response = await apiClient.get('/users');
-
-        // save to database
         const users = response.data;
-        const savedUsers = await User.insertMany(users);
-        console.log('Users saved to database:', savedUsers);
 
-        res.send(response.data);
+        await User.insertMany(users);
+        console.log('Users successfully cached to database.');
+
+        res.send(users);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
@@ -217,62 +251,62 @@ exports.getAllUsers = async (req, res) => {
 // GET USER BY ID
 exports.getUserById = async (req, res) => {
     try {
+        const localUser = await User.findOne({ id: req.params.id });
+        if (localUser) {
+            console.log(`Fetching user ${req.params.id} from local Database...`);
+            return res.send(localUser);
+        }
+
+        console.log(`User ${req.params.id} not found locally. Fetching from External API...`);
         const response = await apiClient.get(`/users/${req.params.id}`);
-
-        // save to database
         const user = response.data;
-        const savedUser = await User.findByIdAndUpdate(req.params.id, user, { new: true });
-        console.log('User updated in database:', savedUser);
 
-        res.send(response.data);
+        await User.create(user);
+        res.send(user);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-// create a new user
+// CREATE A NEW USER
 exports.createUser = async (req, res) => {
     try {
         const response = await apiClient.post('/users', req.body);
-
-        // save to database
         const user = response.data;
+
         const savedUser = await User.create(user);
         console.log('User created in database:', savedUser);
 
-        res.send(response.data);
+        res.send(user);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-// update an existing user
+// UPDATE AN EXISTING USER
 exports.updateUser = async (req, res) => {
     try {
         const response = await apiClient.put(`/users/${req.params.id}`, req.body);
-
-        // save to database
         const user = response.data;
-        const updatedUser = await User.findByIdAndUpdate(req.params.id, user, { new: true });
+
+        const updatedUser = await User.findOneAndUpdate({ id: req.params.id }, user, { new: true });
         console.log('User updated in database:', updatedUser);
 
-        res.send(response.data);
+        res.send(user);
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: error.message });
     }
 }
 
-// delete a user
+// DELETE A USER
 exports.deleteUser = async (req, res) => {
     try {
         const response = await apiClient.delete(`/users/${req.params.id}`);
-
-        // save to database
-        const user = response.data;
-        const deletedUser = await User.findByIdAndDelete(req.params.id);
+        
+        const deletedUser = await User.findOneAndDelete({ id: req.params.id });
         console.log('User deleted from database:', deletedUser);
 
         res.send(response.data);
@@ -282,17 +316,20 @@ exports.deleteUser = async (req, res) => {
     }
 }
 
+// ==========================================
 // AUTH
+// ==========================================
 
 // LOGIN 
 exports.loginUser = async (req, res) => {
     try {
         const response = await apiClient.post('/auth/login', req.body);
-
-        // save to database
         const user = response.data;
+
+        // Login usually returns a token, you don't always need to create a user here, 
+        // but keeping it structural to your previous code pattern
         const savedUser = await User.create(user);
-        console.log('User created in database:', savedUser);
+        console.log('User authenticated and saved:', savedUser);
 
         res.send(response.data);
     } catch (error) {
@@ -301,7 +338,4 @@ exports.loginUser = async (req, res) => {
     }
 }
 
-
-module.exports = apiClient
-
-
+module.exports = apiClient;
