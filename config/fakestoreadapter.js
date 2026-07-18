@@ -4,7 +4,7 @@ const axios = require('axios');
 // const Cart = require('../models/Cart');
 // const User = require('../models/User');
 
-const baseURL = 'https://fakestoreapi.com';
+const baseURL = 'https://api.allorigins.win/raw?url=https://fakestoreapi.com'';
 
 const apiClient = axios.create({
     baseURL: baseURL,
